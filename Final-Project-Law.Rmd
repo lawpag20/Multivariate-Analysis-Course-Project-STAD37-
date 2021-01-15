@@ -1,0 +1,297 @@
+---
+date: "November 19, 2018"
+output: word_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+#install.packages("readxl")
+library(readxl)
+```
+
+```{r}
+fat_data = read_excel("project2-data.xls", sheet="Data")
+fat_data
+fat_data_orig <- fat_data
+```
+SUMMARY OF DATA:
+```{r}
+#fat_data$Sex <- as.factor(fat_data$Sex)
+#fat_data$Diabetes <- as.factor(fat_data$Diabetes)
+#fat_data$Season <- as.factor(fat_data$Season)
+#fat_data$Cancer_Status <- as.factor(fat_data$Cancer_Status)
+#fat_data$Cancer_Type <- as.factor(fat_data$Cancer_Type)
+#fat_data$BrownFat <- as.factor(fat_data$BrownFat)
+str(fat_data)
+```
+
+- working with 4842 observations, with total of 27 variables
+- 20 numerical variables (Id, Age, Day, Ext_Temp, 2D_Temp, 3D_Temp, 7D_Temp, 1M_Temp, Duration_Sunshine, Weigth*, Size, BMI, Glycemy, LBW, Total_Vol, Cervical_volume, Paravertebral_vol, Mediastinal_vol, Perirenal_vol)
+
+- 7 categorical variables (Sex, Diabetes, Month, Season, Cancer_Status, Cancer_Type, BrownFat)
+
+fat_data$Month <- replace(fat_data$Month, fat_data$Month==c("January"), 1)
+fat_data$Month <- replace(fat_data$Month, fat_data$Month==c("February"), 2)
+fat_data$Month <- replace(fat_data$Month, fat_data$Month==c("March"), 3)
+fat_data$Month <- replace(fat_data$Month, fat_data$Month==c("April"), 4)
+fat_data$Month <- replace(fat_data$Month, fat_data$Month==c("May"), 5)
+fat_data$Month <- replace(fat_data$Month, fat_data$Month==c("June"), 6)
+fat_data$Month <- replace(fat_data$Month, fat_data$Month==c("July"), 7)
+fat_data$Month <- replace(fat_data$Month, fat_data$Month==c("August"), 8)
+fat_data$Month <- replace(fat_data$Month, fat_data$Month==c("September"), 9)
+fat_data$Month <- replace(fat_data$Month, fat_data$Month==c("October"), 10)
+fat_data$Month <- replace(fat_data$Month, fat_data$Month==c("November"), 11)
+fat_data$Month <- replace(fat_data$Month, fat_data$Month==c("December"), 12)
+```{r}
+# removing categorical variables from data, to later create corr. matrix
+fat_data.num <- fat_data_orig[c(-1,-2,-5,-6,-12,-19:-21, -24:-27)] # for only total_vol
+fat_data_pattern.num <- fat_data_orig[c(-1,-2,-5,-6,-12,-19:-21,-23)] # for only patterns
+```
+
+```{r}
+aggregate(BrownFat ~ Season, data=fat_data, FUN=length) # Spring, Summer, Fall, Winter - highest amunt in fall, winter
+table(fat_data$BrownFat, fat_data$Sex) # amount of males without brown fat > females, amount of females WITH brown fat > males
+```
+
+Correlation matrix below:
+```{r}
+library(caret)
+R=cor(fat_data_pattern.num)
+nosig <- R < 0.5
+eigenR=eigen(R)
+#eigenR
+#install.packages("corrplot")
+library(corrplot)
+corrplot(R, method = "color", outline = T,addCoef.col = "white", number.digits = 2, number.cex = 0.5)
+#install.packages("corrplot")
+#library(RColorBrewer)
+#corrplot(R, method = "color", outline = T, addgrid.col = "darkgray", order="hclust", addrect = 4, rect.col = "black", rect.lwd = 5,cl.pos = "b", tl.col = "indianred4", tl.cex = 1.5, cl.cex = 1.5, addCoef.col = "white", number.digits = 2, number.cex = 0.75, col = colorRampPalette(c("darkred","white","midnightblue"))(100))
+cancer_data2<- fat_data_pattern.num[,-findCorrelation(R,cutoff = 0.7)]
+```
+
+MODEL SELECTION:
+```{r}
+library(MASS)
+y <- fat_data_orig$BrownFat
+# Fit the full model 
+#full.model <- lm(y ~ . - (BrownFat + Total_vol + Cervical_vol + Mediastinal_vol + Paravertebral_vol + Perirenal_vol), data = fat_data_orig) ## Model with non-Brown fat predictors 
+full.model <- lm(cbind(Cervical_vol + Mediastinal_vol + Paravertebral_vol + Perirenal_vol)  ~ . - (BrownFat + Total_vol + Cervical_vol + Mediastinal_vol + Paravertebral_vol + Perirenal_vol), data = fat_data_orig)
+# Stepwise regression model
+step.model <- stepAIC(full.model, direction = "forward", trace = FALSE)
+summary(step.model)
+```
+
+```{r}
+# m2 <- lm(fat_data$Total_vol ~ fat_data$Cervical_vol + fat_data$Mediastinal_vol + fat_data$Paravertebral_vol + fat_data$Perirenal_vol, data = fat_data) ## Model with all predictors ##
+y <- fat_data$BrownFat
+noBrown <- as.numeric(unlist(fat_data[c(-23)], use.names=FALSE))
+null <- lm(y ~ 1, data = fat_data) ## Model with Intercept only, B_0##
+full <- lm(y ~ . - (BrownFat + Total_vol + Cervical_vol + Mediastinal_vol + Paravertebral_vol + Perirenal_vol), data = fat_data) ## Model with all predictors ##
+#m1 = step(full, list(lower=~1, upper=formula(full)), scale = 1, trace = T, direction="backward") ## Forward Selection ##
+m1 = step(full, data= fat_data.num, direction="backward")
+#m1 = step(null, scope = list(upper=full), data=fat_data, direction="both") ## Forward Stepwise Procedure ##
+anova(m1)
+summary(m1)
+```
+
+
+ 
+
+doing PCA (for total, excluding 4 types):
+```{r}
+# Using a principal component R function 
+pca.stock = prcomp(fat_data_pattern.num, scale=T)
+#summary(pca.stock)
+#L = pca.stock$rotation[ ,1:2]*matrix(pca.stock$sdev[1:2], 5, 2, byrow=T)
+fat_data.pca =  prcomp(fat_data_pattern.num, scale=TRUE);fat_data.pca
+plot(fat_data.pca, type = "l")
+#plot(fat_data.num, type = "l")
+summary(fat_data.pca)
+# Calculate the proportion of variance explained
+pca_data_var<- fat_data.pca$sdev^2
+pv_data<-pca_data_var/sum(pca_data_var)
+cum_pv<- cumsum(pv_data)
+pv_table<- tibble(comp= seq(1:ncol(fat_data_pattern.num)),pv_data,cum_pv)
+#Let's plot the graph
+ggplot(pv_table,aes(x=comp,y=cum_pv))+ geom_point(col= "red")+ geom_abline(intercept = 0.80,slope = 0) # 6 components would account for 80% of variance
+```
+MANOVA:
+
+```{r}
+# Calculate number of counts for each season, to be used in MANOVA 
+a = table(fat_data_orig$Season)
+a
+fat_data_manova = subset(fat_data_orig, select = c(Cervical_vol, Mediastinal_vol,Paravertebral_vol,Perirenal_vol,Season))
+fat_data_manova
+glimpse(fat_data_manova)
+```
+
+```{r}
+attach(fat_data_manova)
+x = cbind(Cervical_vol, Mediastinal_vol,Paravertebral_vol, Perirenal_vol)
+#fdn.manova = manova(x ~ . - (BrownFat + Total_vol + Cervical_vol + Mediastinal_vol + Paravertebral_vol + Perirenal_vol), data = fat_data_orig)
+fdn.manova = manova(x ~ Season)
+summary(fdn.manova, test = "Wilks")
+summary(fdn.manova, test = "Roy")
+summary(fdn.manova, test = "Hotelling-Lawley")
+summary(fdn.manova, test = "Pillai")
+source("ChisqPlot.R")
+chisqplot(residuals(fdn.manova))
+
+by(x, Season, var)
+group.sample.sizes <-c(1188,1148,1267,1239)
+source("Box_M.R")
+Box_M(x, group.sample.sizes)
+S1 = var(x[ Season==1, ])
+S2 = var(x[ Season==2, ])
+S3 = var(x[ Season==3, ])
+S4 = var(x[ Season==4, ])
+
+W =((1188-1)*S1 +(1148-1)*S2 +(1267-1)*S3 +(1239-1)*S4) 
+by(x, Season, colMeans)
+mean1 = colMeans(x[Season == 1, ])
+mean2 = colMeans(x[Season == 2, ])
+mean3 = colMeans(x[Season == 3, ])
+mean4 = colMeans(x[Season == 4, ])
+Grand.mean = colMeans(x)
+B =50*((mean1-Grand.mean)%*%t(mean1-Grand.mean) +(mean2-Grand.mean)%*%t(mean2-Grand.mean)+(mean3-Grand.mean)%*%t(mean3-Grand.mean))
+# Lawley's and Hotelling's Test
+sum(diag(B%*%solve(W)))
+# Pillar's Test
+sum(diag(B%*%solve(B +W)))
+# Wilk's Test
+det(W)/det(B+W)
+```
+```{r}
+summary.aov(fdn.manova)
+my.alpha <-0.10# family confidence level for CIs is 90% here
+my.n <-nrow(x)
+my.k <-4 # number of groups
+my.p <-4 # numberof variables
+E =(my.n -1)*var(residuals(fdn.manova))
+
+for(i in 1:my.p) {
+  pair.mean.diffs <- cbind( t(combn(my.k,2)),combn(tapply(t(fat_data_manova[,i]),Season,mean),2,FUN=diff) )
+
+  t.val <-qt(my.alpha/(my.p*my.k*(my.k-1)), df=my.n-my.k, lower=F)
+
+  CI.L <-pair.mean.diffs[,3]-t.val*sqrt((diag(E)[i]/(my.n-my.k))*(1/group.sample.sizes[pair.mean.diffs[,1]] +1/group.sample.sizes[pair.mean.diffs[,2]]) )
+
+  CI.U <-pair.mean.diffs[,3]+t.val*sqrt((diag(E)[i]/(my.n-my.k))*(1/group.sample.sizes[pair.mean.diffs[,1]]+1/group.sample.sizes[pair.mean.diffs[,2]]) )
+
+  my.table.mat<-cbind(pair.mean.diffs, round(CI.L,3), round(CI.U,3),rep(i,times=nrow(pair.mean.diffs)))
+
+  my.table<-as.data.frame(my.table.mat)
+  names(my.table)=c('grp1','grp2','diff.samp.means','lower.CI','upper.CI','variable')
+  print(my.table)
+}
+
+```
+
+```{r message=FALSE, warning=FALSE}
+library("tidyverse")
+library("readxl")
+library("corrplot")
+#Read data and display partial
+fat_data_raw = read_excel("project2-data.xls", sheet="Data")
+fat_data_raw
+```
+
+
+Remove the categorical values.
+```{r message=FALSE, warning=FALSE}
+#Remove categorical variables and display resulting data frame
+#fat_data_numerical = subset(fat_data_raw, select=-c(Sex, Diabetes, Month, Season, Cancer_Status, Cancer_Type, BrownFat))
+fat_data_numerical = subset(fat_data_raw, select=-c(Sex, Diabetes, Month, Id, Cancer_Status, Cancer_Type, BrownFat))
+fat_data_numerical
+```
+
+
+We can see here that there is only one column that has missing data, and that's the TSH column. There is missing data for 4425 out of the 4842 total data points. This column will not be very helpful for analysis.
+```{r message=FALSE, warning=FALSE}
+#Replace character string NAs with actual NAs
+fat_data_numerical[fat_data_numerical=='NA'] <- NA
+#Count number of NAs in each column and log result
+na_count_vector = c()
+index = 1
+for(columnName in names(fat_data_numerical)){
+  na_count_vector[index] = sum(is.na(fat_data_numerical[[columnName]]))
+  index = index + 1
+}
+fat_data_NA_count = data.frame(t(na_count_vector))
+colnames(fat_data_NA_count) <- names(fat_data_numerical)
+#Display NA count vector
+fat_data_NA_count
+#fat_data_NA_count[, colSums(fat_data_NA_count != 0) > 0]        #display NA counts with non-0 elements
+```
+
+Remove the TSH column.
+```{r message=FALSE, warning=FALSE}
+#Remove categorical variables and display resulting data frame
+fat_data_numerical = subset(fat_data_numerical, select=-c(TSH))
+fat_data_numerical
+```
+
+
+
+```{r message=FALSE, warning=FALSE}
+#Remove 0 columns
+fat_data_numerical_nonzero = subset(fat_data_numerical, select=-c(Total_vol, Cervical_vol, Mediastinal_vol, Paravertebral_vol, Perirenal_vol))
+R=cor(fat_data_numerical)
+corrplot(R, method = "color", outline = T, addCoef.col = "white", number.digits = 2, number.cex = 0.5)
+eigenR=eigen(R)
+eigenR
+# Compute proportion of the total variance explained by the first eigenvalues
+cumsum(eigenR$values)/sum(eigenR$values)
+# Use two factor model and compute the matrix of estimated factor loadings [cf. (9-15)] (changing the sign of the second eigenvector)
+L=cbind(sqrt(eigenR$val[1])*eigenR$vec[,1],-sqrt(eigenR$val[2])*eigenR$vec[,2])
+L
+# Compute the communalities [cf. (9-17)] and the specific variances [cf. (9-16)]
+h=apply(L^2,1,sum)
+h = diag(L%*%t(L))
+Psi=diag(R)-h
+# Compute the residual matrix [cf. (9-18)]
+R-(L%*%t(L)+diag(Psi))
+# Using a principal component R function 
+pca.fat_data_numerical_nonzero = prcomp(fat_data_numerical_nonzero, scale=T)
+summary(pca.fat_data_numerical_nonzero)
+L = pca.fat_data_numerical_nonzero$rotation[ ,1:2]*matrix(pca.fat_data_numerical_nonzero$sdev[1:2], 14, 2, byrow=T)
+h = diag(L%*%t(L))
+# Then consider the maximum likelihood solution (example 9.5)
+# Find the maximum likelihood solution (with no rotation):
+fac.fat_data_numerical_nonzero=factanal(fat_data_numerical_nonzero,2,rotation="none",lower=0.1)
+fac.fat_data_numerical_nonzero
+# Find the maximum likelihood solution (with no rotation) allowing lower values of the specific variances (denoted "uniquenesses" by R). This (almost) reproduces the results of example 9.5 in J&W
+fac.fat_data_numerical_nonzero=factanal(fat_data_numerical_nonzero,2,rotation="none", lower=0.1)
+fac.fat_data_numerical_nonzero
+print(loadings(fac.fat_data_numerical_nonzero),cutoff=0)
+# Compute the residual matrix [cf. (9-18)]
+R=fac.fat_data_numerical_nonzero$cor
+L=fac.fat_data_numerical_nonzero$load
+Psi=fac.fat_data_numerical_nonzero$unique
+R-L%*%t(L)-diag(Psi)
+# Likelihood ratio test from basic formulas [without and with Bartlett's correction; cf. (9-38) and (9-39)]
+n=dim(fat_data_numerical_nonzero)[1]
+p=dim(fat_data_numerical_nonzero)[2]
+m=dim(L)[2]
+df=p*(p+1)/2-(p*(m+1)-m*(m-1)/2)
+X2=n*log(det(L%*%t(L)+diag(Psi))/det(R))
+X2.Bartlett=(n-1-(2*p+4*m+5)/6)*log(det(L%*%t(L)+diag(Psi))/det(R))
+### R codes for Factor Rotation  
+print(loadings(varimax(L)), cutoff=0)
+promax(L)
+fac.fat_data_numerical_nonzero=factanal(fat_data_numerical_nonzero,2,rotation="varimax", lower=0.1)
+print(loadings(fac.fat_data_numerical_nonzero),cutoff=0)
+fac.fat_data_numerical_nonzero=factanal(fat_data_numerical_nonzero,2,rotation="promax", lower=0.1)
+print(loadings(fac.fat_data_numerical_nonzero),cutoff=0)
+## R codes for Factor Scores
+fac.fat_data_numerical_nonzero=factanal(fat_data_numerical_nonzero,2,rotation="varimax", lower=0.1, scores="Bartlett")
+plot(fac.fat_data_numerical_nonzero$scores, pch=20)
+fac.fat_data_numerical_nonzero=factanal(fat_data_numerical_nonzero,2,rotation="varimax", lower=0.1, scores="regression")
+plot(fac.fat_data_numerical_nonzero$scores, pch=20)
+### Check normality of each factor score  ###
+par(mfrow=c(1,2))
+qqnorm(fac.fat_data_numerical_nonzero$scores[ ,1])
+qqnorm(fac.fat_data_numerical_nonzero$scores[ ,2])
+```
+
